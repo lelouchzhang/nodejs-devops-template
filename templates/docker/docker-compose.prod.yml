@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # Node.js应用服务（生产环境）
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ${PROJECT_NAME:-app}-api-prod
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+    networks:
+      - app-production
+    restart: unless-stopped
+    
+    # 健康检查配置
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const http = require('http'); const req = http.request({hostname: 'localhost', port: 3000, path: '/health'}, (res) => process.exit(res.statusCode === 200 ? 0 : 1)); req.on('error', () => process.exit(1)); req.end();",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # 资源限制（生产环境重要）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    
+    # 日志配置
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /app/logs:noexec,nosuid,size=50m
+
+  # Nginx反向代理（可选，用于HTTPS和负载均衡）
+  nginx:
+    image: nginx:alpine
+    container_name: ${PROJECT_NAME:-app}-nginx-prod
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - app-production
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+
+# 网络配置
+networks:
+  app-production:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# 可选：外部网络配置（用于多服务部署）
+# networks:
+#   app-production:
+#     external: true

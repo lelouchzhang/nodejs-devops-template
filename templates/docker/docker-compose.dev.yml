@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库服务（开发环境）
+  database:
+    image: postgres:15-alpine
+    container_name: ${PROJECT_NAME:-app}-db-dev
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    environment:
+      POSTGRES_DB: ${DB_NAME:-appdb}
+      POSTGRES_USER: ${DB_USER:-developer}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    volumes:
+      # 数据持久化
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本（可选）
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-developer} -d ${DB_NAME:-appdb}']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app-dev
+    restart: unless-stopped
+
+  # Node.js应用服务
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: ${PROJECT_NAME:-app}-api-dev
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env.development
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://${DB_USER:-developer}:${DB_PASSWORD:-devpassword}@database:5432/${DB_NAME:-appdb}
+    volumes:
+      # 挂载源码用于热重载
+      - .:/app
+      - /app/node_modules
+      # 挂载日志目录
+      - ./logs:/app/logs
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - app-dev
+    restart: unless-stopped
+    # 开发环境调试端口（可选）
+    # ports:
+    #   - '9229:9229'
+
+  # Redis缓存服务（可选）
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME:-app}-redis-dev
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+# 数据卷
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# 网络配置
+networks:
+  app-dev:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16

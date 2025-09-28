@@ -1,0 +1,61 @@
+name: Code Quality Check
+
+# 触发条件：推送到主要分支或创建PR时
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint-and-format:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+      # 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 设置Node.js环境
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      # 安装依赖（使用npm ci确保一致性）
+      - name: Install dependencies
+        run: npm ci
+
+      # 运行ESLint检查
+      - name: Run ESLint
+        id: eslint
+        run: |
+          echo "::notice::Running ESLint check..."
+          if ! npm run lint; then
+            echo "::error::ESLint found issues in your code"
+            echo "::notice::Run 'npm run lint:fix' to automatically fix some issues"
+            exit 1
+          fi
+
+      # 运行Prettier格式化检查
+      - name: Run Prettier check
+        id: prettier
+        run: |
+          echo "::notice::Running Prettier format check..."
+          if ! npm run format:check; then
+            echo "::error::Code formatting issues found"
+            echo "::notice::Run 'npm run format' to fix formatting issues"
+            exit 1
+          fi
+
+      # 成功时的通知
+      - name: Success notification
+        if: success()
+        run: |
+          echo "::notice::All linting and formatting checks passed! ✅"
